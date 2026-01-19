@@ -126,6 +126,59 @@ VisualsTab:CreateToggle({
    Callback = function(Value) ESP_SETTINGS.WallCheck = Value end
 })
 
+-- ================= TARGETS TAB =================
+TargetsTab:CreateSection("Manage Targets")
+
+-- Logic to update the list
+local TargetListLabel -- Placeholder
+
+local function UpdateTargetDisplay()
+    if TargetListLabel then
+        local content = ""
+        if #RainbowTargets == 0 then
+            content = "No targets added."
+        else
+            content = table.concat(RainbowTargets, ", ")
+        end
+        TargetListLabel:Set({Title = "Current Targets List:", Content = content})
+    end
+end
+
+TargetsTab:CreateInput({
+   Name = "Add Target (Name)",
+   PlaceholderText = "Player Name...",
+   RemoveTextAfterFocusLost = true,
+   Callback = function(Text)
+        if Text ~= "" then
+            table.insert(RainbowTargets, Text:lower())
+            UpdateTargetDisplay() -- Refresh list
+            Rayfield:Notify({
+               Title = "Target Added",
+               Content = "Added " .. Text,
+               Duration = 2,
+               Image = 4483362458,
+            })
+        end
+   end
+})
+
+TargetsTab:CreateButton({
+   Name = "Clear All Targets",
+   Callback = function()
+        table.clear(RainbowTargets)
+        UpdateTargetDisplay() -- Refresh list
+        Rayfield:Notify({
+           Title = "Cleared",
+           Content = "All targets removed.",
+           Duration = 2,
+           Image = 4483362458,
+        })
+   end
+})
+
+-- The display paragraph
+TargetListLabel = TargetsTab:CreateParagraph({Title = "Current Targets List:", Content = "No targets added."})
+
 -- ================= AIMBOT TAB =================
 AimbotTab:CreateSection("Main")
 
@@ -154,14 +207,17 @@ AimbotTab:CreateToggle({
    Callback = function(Value) ESP_SETTINGS.AimFOV = Value end
 })
 
-AimbotTab:CreateSlider({
-   Name = "FOV Radius",
-   Range = {10, 800},
-   Increment = 10,
-   Suffix = "px",
-   CurrentValue = ESP_SETTINGS.AimRadius,
-   Flag = "AimRadius", 
-   Callback = function(Value) ESP_SETTINGS.AimRadius = Value end
+-- CHANGED TO INPUT
+AimbotTab:CreateInput({
+   Name = "FOV Radius (Size)",
+   PlaceholderText = "100",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Text)
+        local num = tonumber(Text)
+        if num then
+            ESP_SETTINGS.AimRadius = num
+        end
+   end
 })
 
 AimbotTab:CreateToggle({
@@ -184,6 +240,7 @@ AimbotTab:CreateToggle({
    Flag = "AimSmartDist", 
    Callback = function(Value) ESP_SETTINGS.AimSmartDist = Value end
 })
+
 -- END OF PART 1
 -- PASTE THIS UNDER PART 1
 
@@ -212,14 +269,17 @@ HitboxTab:CreateToggle({
    end
 })
 
-HitboxTab:CreateSlider({
+-- CHANGED TO INPUT
+HitboxTab:CreateInput({
    Name = "Hitbox Size",
-   Range = {2, 50},
-   Increment = 1,
-   Suffix = "studs",
-   CurrentValue = ESP_SETTINGS.HitboxSize,
-   Flag = "HitboxSize", 
-   Callback = function(Value) ESP_SETTINGS.HitboxSize = Value end
+   PlaceholderText = "20",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Text)
+        local num = tonumber(Text)
+        if num then
+            ESP_SETTINGS.HitboxSize = num
+        end
+   end
 })
 
 HitboxTab:CreateToggle({
@@ -234,39 +294,6 @@ HitboxTab:CreateButton({
    Callback = function()
         ESP_SETTINGS.Hitbox = false
         ResetHitboxLogic()
-   end
-})
-
--- ================= TARGETS TAB =================
-TargetsTab:CreateSection("Manage Targets")
-
-TargetsTab:CreateInput({
-   Name = "Add Target (Name)",
-   PlaceholderText = "Player Name...",
-   RemoveTextAfterFocusLost = true,
-   Callback = function(Text)
-        if Text ~= "" then
-            table.insert(RainbowTargets, Text:lower())
-            Rayfield:Notify({
-               Title = "Target Added",
-               Content = "Added " .. Text .. " to rainbow list.",
-               Duration = 2,
-               Image = 4483362458,
-            })
-        end
-   end
-})
-
-TargetsTab:CreateButton({
-   Name = "Clear All Targets",
-   Callback = function()
-        table.clear(RainbowTargets)
-        Rayfield:Notify({
-           Title = "Cleared",
-           Content = "All targets removed.",
-           Duration = 2,
-           Image = 4483362458,
-        })
    end
 })
 
