@@ -4,7 +4,7 @@ local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
-local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager") -- [FIX] Better for mobile
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -28,13 +28,14 @@ getgenv().ESP_SETTINGS = {
 	-- Aimbot
 	Aimbot = false,
 	TriggerBot = false,
-	TriggerPos = nil, -- [NEW] Stores custom fire button position
+	TriggerPos = nil, 
 	AimPart = "Head",       
 	AimTeamCheck = true,
 	AimWallCheck = false,   
 	AimFOV = true,      
 	AimRadius = 100,
-	AimSmartDist = false
+	AimSmartDist = false,
+	Smoothness = 0.3 -- [FIX] Prevents ESP Glitching
 }
 getgenv().RainbowTargets = {}
 
@@ -505,7 +506,8 @@ end
 local function lookAt(target)
     local lookVector = (target - Camera.CFrame.Position).unit
     local newCFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + lookVector)
-    Camera.CFrame = newCFrame
+    -- [FIX] SMOOTHNESS: Uses Lerp instead of instant snap to prevent ESP glitching
+    Camera.CFrame = Camera.CFrame:Lerp(newCFrame, ESP_SETTINGS.Smoothness)
 end
 
 local function getClosestPlayerInFOV(trg_part)
@@ -604,14 +606,12 @@ RunService.RenderStepped:Connect(function()
 			if part then 
 				lookAt(part.Position)
 				
-				-- [[ TRIGGER BOT LOGIC ]]
-				-- Only fires if Aimbot finds a target (respects WallCheck/TeamCheck)
+				-- [[ TRIGGER BOT LOGIC (MOBILE FIX) ]]
 				if ESP_SETTINGS.TriggerBot then
-					local VUser = game:GetService("VirtualUser")
-					VUser:CaptureController()
-					-- [NEW] Uses custom position if set, otherwise defaults to middle/mouse
-					local clickPos = ESP_SETTINGS.TriggerPos or Vector2.new(0,0)
-					VUser:ClickButton1(clickPos)
+					local clickPos = ESP_SETTINGS.TriggerPos or Vector2.new(vp.X/2, vp.Y/2)
+					-- [FIX] Uses VirtualInputManager for better Mobile support
+					VirtualInputManager:SendMouseButtonEvent(clickPos.X, clickPos.Y, 0, true, game, 1)
+					VirtualInputManager:SendMouseButtonEvent(clickPos.X, clickPos.Y, 0, false, game, 1)
 				end
 			end
 		else
