@@ -4,7 +4,7 @@ local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
-local VirtualInputManager = game:GetService("VirtualInputManager") -- [FIX] Better for mobile
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -35,7 +35,7 @@ getgenv().ESP_SETTINGS = {
 	AimFOV = true,      
 	AimRadius = 100,
 	AimSmartDist = false,
-	Smoothness = 0.3 -- [FIX] Prevents ESP Glitching
+	Smoothness = 0.3
 }
 getgenv().RainbowTargets = {}
 
@@ -506,7 +506,6 @@ end
 local function lookAt(target)
     local lookVector = (target - Camera.CFrame.Position).unit
     local newCFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + lookVector)
-    -- [FIX] SMOOTHNESS: Uses Lerp instead of instant snap to prevent ESP glitching
     Camera.CFrame = Camera.CFrame:Lerp(newCFrame, ESP_SETTINGS.Smoothness)
 end
 
@@ -586,6 +585,8 @@ task.spawn(function()
 	end
 end)
 
+local isFiring = false
+
 -- [[ MAIN LOOP ]]
 RunService.RenderStepped:Connect(function()
 	local vp = Camera.ViewportSize
@@ -593,6 +594,7 @@ RunService.RenderStepped:Connect(function()
 	
 	-- [[ AIMBOT EXECUTION ]]
 	updateDrawings() 
+	local shouldShoot = false
 	
 	if ESP_SETTINGS.Aimbot then
 	    local closest = getClosestPlayerInFOV(ESP_SETTINGS.AimPart)
@@ -605,20 +607,31 @@ RunService.RenderStepped:Connect(function()
 			
 			if part then 
 				lookAt(part.Position)
-				
-				-- [[ TRIGGER BOT LOGIC (MOBILE FIX) ]]
-				if ESP_SETTINGS.TriggerBot then
-					local clickPos = ESP_SETTINGS.TriggerPos or Vector2.new(vp.X/2, vp.Y/2)
-					-- [FIX] Uses VirtualInputManager for better Mobile support
-					VirtualInputManager:SendMouseButtonEvent(clickPos.X, clickPos.Y, 0, true, game, 1)
-					VirtualInputManager:SendMouseButtonEvent(clickPos.X, clickPos.Y, 0, false, game, 1)
-				end
+				-- If we have a target and TriggerBot is enabled, we SHOULD be shooting
+				if ESP_SETTINGS.TriggerBot then shouldShoot = true end
 			end
 		else
 			FOVring.Color = Color3.fromRGB(140, 60, 255) -- Searching
 	    end
 	else
 		FOVring.Visible = false
+	end
+
+	-- [[ TRIGGER BOT HOLD LOGIC ]]
+	if shouldShoot then
+		if not isFiring then
+			-- Start Holding
+			local clickPos = ESP_SETTINGS.TriggerPos or Vector2.new(vp.X/2, vp.Y/2)
+			VirtualInputManager:SendMouseButtonEvent(clickPos.X, clickPos.Y, 0, true, game, 1)
+			isFiring = true
+		end
+	else
+		if isFiring then
+			-- Release Button (Target died, lost, or bot turned off)
+			local clickPos = ESP_SETTINGS.TriggerPos or Vector2.new(vp.X/2, vp.Y/2)
+			VirtualInputManager:SendMouseButtonEvent(clickPos.X, clickPos.Y, 0, false, game, 1)
+			isFiring = false
+		end
 	end
 
 	-- [[ ESP & HITBOX ]]
