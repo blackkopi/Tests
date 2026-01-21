@@ -199,7 +199,6 @@ MinimizeBtn.Font = Enum.Font.GothamBlack; MinimizeBtn.TextSize = 20
 MinimizeBtn.TextColor3 = THEME.TextDim; MinimizeBtn.BackgroundColor3 = Color3.fromRGB(35,35,45)
 Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 10)
 MinimizeBtn.MouseButton1Click:Connect(function() SoundManager.Play("Click"); MiniFrame.Position = MainFrame.Position; MainFrame.Visible = false; MiniFrame.Visible = true end)
-
 -- [[ TABS SYSTEM ]]
 local TabContainer = Instance.new("Frame", MainFrame)
 TabContainer.Position = UDim2.new(0, 12, 0, 56); TabContainer.Size = UDim2.new(1, -24, 0, 36)
@@ -256,6 +255,7 @@ AimScroll.ScrollBarThickness = 2
 AimScroll.BorderSizePixel = 0
 local AimLayout = Instance.new("UIListLayout", AimScroll); AimLayout.Padding = UDim.new(0, 10)
 AimLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() AimScroll.CanvasSize = UDim2.fromOffset(0, AimLayout.AbsoluteContentSize.Y + 10) end)
+
 -- Function to switch tabs
 local function CreateTabBtn(text, posScale, pageToShow)
 	local b = Instance.new("TextButton", TabContainer)
@@ -408,7 +408,6 @@ CreateButton(AimScroll, "Target Part: Head", function(btn)
 	if ESP_SETTINGS.AimPart == "Head" then ESP_SETTINGS.AimPart = "Torso" else ESP_SETTINGS.AimPart = "Head" end
 	btn.Text = "Target Part: " .. ESP_SETTINGS.AimPart
 end)
-
 -- [[ KOPI'S HUB - LOGIC ]]
 
 local ESPStore = {}
@@ -704,4 +703,79 @@ RunService.RenderStepped:Connect(function()
 					
 					esp.Name.Visible = ESP_SETTINGS.Names
 					if ESP_SETTINGS.Names then
-						esp.Name.Text = p.Name; esp.Name.Position = Vector2.new(pos.X, pos.Y - h/2 - 16); esp.Name.Co
+						esp.Name.Text = p.Name; esp.Name.Position = Vector2.new(pos.X, pos.Y - h/2 - 16); esp.Name.Color = col
+					end
+					
+					esp.Info.Visible = ESP_SETTINGS.Distance
+					if esp.Info.Visible then
+						esp.Info.Text = math.floor(dist).."m"; esp.Info.Position = Vector2.new(pos.X, pos.Y + h/2 + 2); esp.Info.Color = col 
+					end
+					
+					esp.Bar.Visible = ESP_SETTINGS.HealthBar
+					esp.BarTrack.Visible = ESP_SETTINGS.HealthBar
+					esp.BarBorder.Visible = ESP_SETTINGS.HealthBar
+					esp.HPText.Visible = ESP_SETTINGS.HealthBar
+
+					if ESP_SETTINGS.HealthBar then
+						local hp = math.clamp(hum.Health/hum.MaxHealth, 0, 1)
+						local staticHeight = 50 
+						local staticWidth = 5 
+						local barX = pos.X - w/2 - (staticWidth + 6)
+						local barTop = pos.Y - staticHeight/2
+						local barBot = pos.Y + staticHeight/2
+						local filledHeight = staticHeight * hp
+						
+						esp.BarBorder.Size = Vector2.new(staticWidth + 2, staticHeight + 2)
+						esp.BarBorder.Position = Vector2.new(barX - 1, barTop - 1)
+						esp.BarTrack.Size = Vector2.new(staticWidth, staticHeight)
+						esp.BarTrack.Position = Vector2.new(barX, barTop)
+						esp.Bar.Size = Vector2.new(staticWidth, filledHeight)
+						esp.Bar.Position = Vector2.new(barX, barBot - filledHeight)
+						esp.Bar.Color = Color3.fromHSV(hp * 0.33, 0.9, 1)
+						esp.HPText.Text = tostring(math.floor(hum.Health))
+						esp.HPText.Position = Vector2.new(barX + (staticWidth/2), pos.Y - 5) 
+					end
+					
+					local doSkel = ESP_SETTINGS.Skeleton
+					for _, l in ipairs(esp.Skeleton) do l.Visible = false end
+					esp.Head.Visible = false
+					
+					if doSkel then
+						local hObj = p.Character:FindFirstChild("Head")
+						if hObj then
+							local hp, hon = Camera:WorldToViewportPoint(hObj.Position)
+							if hon then
+								esp.Head.Visible = true; esp.Head.Position = Vector2.new(hp.X, hp.Y); esp.Head.Radius = math.clamp(400/pos.Z, 4, 15); esp.Head.Color = col
+							end
+						end
+						local links = (hum.RigType == Enum.HumanoidRigType.R15) and R15_LINKS or R6_LINKS
+						for i, lnk in ipairs(links) do
+							local l = esp.Skeleton[i]
+							if l then
+								local p1 = p.Character:FindFirstChild(lnk[1]); local p2 = p.Character:FindFirstChild(lnk[2])
+								if p1 and p2 then
+									local s1, o1 = Camera:WorldToViewportPoint(p1.Position); local s2, o2 = Camera:WorldToViewportPoint(p2.Position)
+									if o1 and o2 then
+										l.Visible = true; l.From = Vector2.new(s1.X, s1.Y); l.To = Vector2.new(s2.X, s2.Y); l.Color = col
+									end
+								end
+							end
+						end
+					end
+				else
+					for _, d in pairs(esp) do
+						if typeof(d)=="table" then for _,s in pairs(d) do s.Visible=false end else d.Visible=false end
+					end
+				end
+			else
+				cleanup(p)
+			end
+		end
+	end
+end)
+
+Players.PlayerRemoving:Connect(cleanup)
+if CoreGui:FindFirstChild("KOPI_PREMIUM_UI") then
+	local mf = CoreGui.KOPI_PREMIUM_UI:FindFirstChild("Frame")
+	if mf then mf.Visible = true end
+end
