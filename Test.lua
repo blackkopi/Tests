@@ -4,7 +4,7 @@ local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
-local VirtualUser = game:GetService("VirtualUser") -- Added service for TriggerBot
+local VirtualUser = game:GetService("VirtualUser")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -27,7 +27,8 @@ getgenv().ESP_SETTINGS = {
 	UniversalColor = true,
 	-- Aimbot
 	Aimbot = false,
-	TriggerBot = false, -- [NEW] Trigger Bot Config
+	TriggerBot = false,
+	TriggerPos = nil, -- [NEW] Stores custom fire button position
 	AimPart = "Head",       
 	AimTeamCheck = true,
 	AimWallCheck = false,   
@@ -398,11 +399,30 @@ end)
 
 -- [[ BUILD AIMBOT (PARENTED TO AIMSCROLL) ]]
 CreateToggle(AimScroll, "Enable Aimbot", "Aimbot")
-CreateToggle(AimScroll, "Trigger Bot", "TriggerBot") -- [NEW] Trigger Bot UI
+CreateToggle(AimScroll, "Trigger Bot", "TriggerBot")
 CreateToggle(AimScroll, "Team Check", "AimTeamCheck")
 CreateToggle(AimScroll, "Show FOV", "AimFOV")
 CreateToggle(AimScroll, "Prioritize Distance", "AimSmartDist")
 CreateToggle(AimScroll, "Wall Check", "AimWallCheck")
+
+-- [NEW] SET FIRE POS BUTTON
+CreateButton(AimScroll, "SET FIRE POS (TAP SCREEN)", function(btn)
+    SoundManager.Play("Click")
+    btn.Text = "TAP FIRE BUTTON NOW..."
+    
+    -- Create transparent capture button covering screen
+    local capture = Instance.new("TextButton", ScreenGui)
+    capture.Size = UDim2.new(1,0,1,0); capture.BackgroundTransparency = 0.5; capture.BackgroundColor3 = Color3.new(0,0,0)
+    capture.Text = "TAP YOUR FIRE BUTTON"; capture.TextColor3 = Color3.new(1,1,1); capture.TextSize = 24; capture.Font = Enum.Font.GothamBold
+    
+    local con; con = capture.MouseButton1Click:Connect(function()
+        local m = UserInputService:GetMouseLocation()
+        ESP_SETTINGS.TriggerPos = m
+        btn.Text = "Fire Pos Set! ("..math.floor(m.X)..","..math.floor(m.Y)..")"
+        SoundManager.Play("Toggle")
+        con:Disconnect(); capture:Destroy()
+    end)
+end)
 
 CreateButton(AimScroll, "Target Part: Head", function(btn) 
 	if ESP_SETTINGS.AimPart == "Head" then ESP_SETTINGS.AimPart = "Torso" else ESP_SETTINGS.AimPart = "Head" end
@@ -589,7 +609,9 @@ RunService.RenderStepped:Connect(function()
 				if ESP_SETTINGS.TriggerBot then
 					local VUser = game:GetService("VirtualUser")
 					VUser:CaptureController()
-					VUser:ClickButton1(Vector2.new())
+					-- [NEW] Uses custom position if set, otherwise defaults to middle/mouse
+					local clickPos = ESP_SETTINGS.TriggerPos or Vector2.new(0,0)
+					VUser:ClickButton1(clickPos)
 				end
 			end
 		else
