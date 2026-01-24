@@ -4,7 +4,6 @@ local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -25,17 +24,15 @@ getgenv().ESP_SETTINGS = {
 	Hitbox = false,      
 	HitboxSize = 20,
 	UniversalColor = true,
+	HitboxTeamCheck = false, -- [[ ADDED: New Config ]]
 	-- Aimbot
 	Aimbot = false,
-	TriggerBot = false,
-	TriggerPos = nil, 
 	AimPart = "Head",       
 	AimTeamCheck = true,
 	AimWallCheck = false,   
 	AimFOV = true,      
 	AimRadius = 100,
-	AimSmartDist = false,
-	Smoothness = 0.3
+	AimSmartDist = false
 }
 getgenv().RainbowTargets = {}
 
@@ -201,6 +198,7 @@ MinimizeBtn.Font = Enum.Font.GothamBlack; MinimizeBtn.TextSize = 20
 MinimizeBtn.TextColor3 = THEME.TextDim; MinimizeBtn.BackgroundColor3 = Color3.fromRGB(35,35,45)
 Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 10)
 MinimizeBtn.MouseButton1Click:Connect(function() SoundManager.Play("Click"); MiniFrame.Position = MainFrame.Position; MainFrame.Visible = false; MiniFrame.Visible = true end)
+
 -- [[ TABS SYSTEM ]]
 local TabContainer = Instance.new("Frame", MainFrame)
 TabContainer.Position = UDim2.new(0, 12, 0, 56); TabContainer.Size = UDim2.new(1, -24, 0, 36)
@@ -342,7 +340,8 @@ local function RefreshTargets()
 		Instance.new("UICorner", f).CornerRadius = UDim.new(0,8)
 		local t = Instance.new("TextLabel", f); t.Text = v; t.Size = UDim2.new(1,-30,1,0); t.Position = UDim2.new(0,12,0,0); t.Font = Enum.Font.GothamSemibold; t.TextColor3 = THEME.Text; t.TextXAlignment = Enum.TextXAlignment.Left; t.BackgroundTransparency = 1
 		local del = Instance.new("TextButton", f); del.Size = UDim2.fromOffset(24,24); del.Position = UDim2.new(1,-28,0,4); del.Text = "✕"; del.BackgroundColor3 = THEME.Red; del.TextColor3 = Color3.new(1,1,1)
-		Instance.new("UICorner", del).CornerRadius = UDim.new(0,6); del.MouseButton1Click:Connect(function() table.remove(RainbowTargets, i); SoundManager.Play("Click"); RefreshTargets() end)
+		Instance.new("UICorner", del).CornerRadius = UDim.new(0,6);
+		del.MouseButton1Click:Connect(function() table.remove(RainbowTargets, i); SoundManager.Play("Click"); RefreshTargets() end)
 	end
 end
 TargInput.FocusLost:Connect(function(enter)
@@ -363,6 +362,7 @@ local function ResetHitboxLogic()
 end
 
 local HitToggleBtn = CreateToggle(HitboxPage, "Enable Hitbox", "Hitbox", function(state) if state == false then ResetHitboxLogic() end end)
+CreateToggle(HitboxPage, "Team Check", "HitboxTeamCheck", function() ResetHitboxLogic() end) -- [[ ADDED: Toggle ]]
 CreateToggle(HitboxPage, "Universal Color", "UniversalColor")
 
 local CustomInput = Instance.new("TextBox", HitboxPage)
@@ -397,38 +397,18 @@ ResetBtn.MouseButton1Click:Connect(function()
 	local sw = HitToggleBtn:FindFirstChild("Frame"); if sw then CreateTween(sw, {BackgroundColor3 = Color3.fromRGB(45,45,55)}); local c = sw:FindFirstChild("Frame"); if c then CreateTween(c, {Position = UDim2.new(0, 2, 0.5, -9)}) end end
 	ResetHitboxLogic()
 end)
-
 -- [[ BUILD AIMBOT (PARENTED TO AIMSCROLL) ]]
 CreateToggle(AimScroll, "Enable Aimbot", "Aimbot")
-CreateToggle(AimScroll, "Trigger Bot", "TriggerBot")
 CreateToggle(AimScroll, "Team Check", "AimTeamCheck")
 CreateToggle(AimScroll, "Show FOV", "AimFOV")
 CreateToggle(AimScroll, "Prioritize Distance", "AimSmartDist")
 CreateToggle(AimScroll, "Wall Check", "AimWallCheck")
 
--- [NEW] SET FIRE POS BUTTON
-CreateButton(AimScroll, "SET FIRE POS (TAP SCREEN)", function(btn)
-    SoundManager.Play("Click")
-    btn.Text = "TAP FIRE BUTTON NOW..."
-    
-    -- Create transparent capture button covering screen
-    local capture = Instance.new("TextButton", ScreenGui)
-    capture.Size = UDim2.new(1,0,1,0); capture.BackgroundTransparency = 0.5; capture.BackgroundColor3 = Color3.new(0,0,0)
-    capture.Text = "TAP YOUR FIRE BUTTON"; capture.TextColor3 = Color3.new(1,1,1); capture.TextSize = 24; capture.Font = Enum.Font.GothamBold
-    
-    local con; con = capture.MouseButton1Click:Connect(function()
-        local m = UserInputService:GetMouseLocation()
-        ESP_SETTINGS.TriggerPos = m
-        btn.Text = "Fire Pos Set! ("..math.floor(m.X)..","..math.floor(m.Y)..")"
-        SoundManager.Play("Toggle")
-        con:Disconnect(); capture:Destroy()
-    end)
-end)
-
 CreateButton(AimScroll, "Target Part: Head", function(btn) 
 	if ESP_SETTINGS.AimPart == "Head" then ESP_SETTINGS.AimPart = "Torso" else ESP_SETTINGS.AimPart = "Head" end
 	btn.Text = "Target Part: " .. ESP_SETTINGS.AimPart
 end)
+
 -- [[ KOPI'S HUB - LOGIC ]]
 
 local ESPStore = {}
@@ -506,7 +486,7 @@ end
 local function lookAt(target)
     local lookVector = (target - Camera.CFrame.Position).unit
     local newCFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + lookVector)
-    Camera.CFrame = Camera.CFrame:Lerp(newCFrame, ESP_SETTINGS.Smoothness)
+    Camera.CFrame = newCFrame
 end
 
 local function getClosestPlayerInFOV(trg_part)
@@ -574,6 +554,7 @@ local function getClosestPlayerInFOV(trg_part)
 			end
         end
     end
+
     return nearest
 end
 
@@ -584,9 +565,6 @@ task.spawn(function()
 		BgGradient.Rotation = (BgGradient.Rotation + 0.2) % 360
 	end
 end)
-
-local isFiring = false
-
 -- [[ MAIN LOOP ]]
 RunService.RenderStepped:Connect(function()
 	local vp = Camera.ViewportSize
@@ -594,44 +572,20 @@ RunService.RenderStepped:Connect(function()
 	
 	-- [[ AIMBOT EXECUTION ]]
 	updateDrawings() 
-	local shouldShoot = false
 	
 	if ESP_SETTINGS.Aimbot then
 	    local closest = getClosestPlayerInFOV(ESP_SETTINGS.AimPart)
 	    if closest and closest.Character then
 			FOVring.Color = Color3.fromRGB(255, 60, 70) -- Red when locked
-			
 			local part = closest.Character:FindFirstChild(ESP_SETTINGS.AimPart)
 			if not part and ESP_SETTINGS.AimPart == "Torso" then part = closest.Character:FindFirstChild("UpperTorso") end
 			if not part then part = closest.Character:FindFirstChild("HumanoidRootPart") end
-			
-			if part then 
-				lookAt(part.Position)
-				-- If we have a target and TriggerBot is enabled, we SHOULD be shooting
-				if ESP_SETTINGS.TriggerBot then shouldShoot = true end
-			end
+			if part then lookAt(part.Position) end
 		else
 			FOVring.Color = Color3.fromRGB(140, 60, 255) -- Searching
 	    end
 	else
 		FOVring.Visible = false
-	end
-
-	-- [[ TRIGGER BOT HOLD LOGIC ]]
-	if shouldShoot then
-		if not isFiring then
-			-- Start Holding
-			local clickPos = ESP_SETTINGS.TriggerPos or Vector2.new(vp.X/2, vp.Y/2)
-			VirtualInputManager:SendMouseButtonEvent(clickPos.X, clickPos.Y, 0, true, game, 1)
-			isFiring = true
-		end
-	else
-		if isFiring then
-			-- Release Button (Target died, lost, or bot turned off)
-			local clickPos = ESP_SETTINGS.TriggerPos or Vector2.new(vp.X/2, vp.Y/2)
-			VirtualInputManager:SendMouseButtonEvent(clickPos.X, clickPos.Y, 0, false, game, 1)
-			isFiring = false
-		end
 	end
 
 	-- [[ ESP & HITBOX ]]
@@ -650,10 +604,12 @@ RunService.RenderStepped:Connect(function()
 			local hrp = p.Character:FindFirstChild("HumanoidRootPart")
 			
 			if hum and hrp and hum.Health > 0 then
+				
 				local isTeammate = (p.Team == LocalPlayer.Team)
 				
 				if ESP_SETTINGS.Hitbox then
-					if not (ESP_SETTINGS.HideTeam and isTeammate) then
+					-- [[ MODIFIED: Using HitboxTeamCheck ]]
+					if not (ESP_SETTINGS.HitboxTeamCheck and isTeammate) then
 						pcall(function()
 							hrp.Size = Vector3.new(ESP_SETTINGS.HitboxSize, ESP_SETTINGS.HitboxSize, ESP_SETTINGS.HitboxSize)
 							hrp.Transparency = 0.7
@@ -674,23 +630,25 @@ RunService.RenderStepped:Connect(function()
 				end
 
 				if ESP_SETTINGS.HideTeam and isTeammate then
-					cleanup(p);
-					local h = p.Character:FindFirstChild("KopiHighlight")
+					cleanup(p); local h = p.Character:FindFirstChild("KopiHighlight")
 					if h then h.Enabled = false end
 					continue
 				end
 				
 				if not ESPStore[p] then
 					ESPStore[p] = {
+						-- Using thin lines for premium box look
 						Box = D("Square", {Thickness=1, Filled=false, Transparency=1}),
 						BoxOutline = D("Square", {Thickness=2, Filled=false, Transparency=0.6, Color=Color3.new(0,0,0)}),
 						Tracer = D("Line", {Thickness=1, Transparency=1}),
 						Name = D("Text", {Size=13, Center=true, Outline=true, Font=3}), 
 						Info = D("Text", {Size=11, Center=true, Outline=true, Font=3}),
-						BarBorder = D("Square", {Thickness=1, Filled=false, Transparency=1, Color=Color3.new(0,0,0)}),
+						-- [[ PREMIUM HEALTH BAR OBJECTS ]]
+						BarBorder = D("Square", {Thickness=1, Filled=false, Transparency=1, Color=Color3.new(0,0,0)}), -- New Outline
 						BarTrack = D("Square", {Filled=true, Transparency=0.6, Color=Color3.fromRGB(20,20,25)}),
 						Bar = D("Square", {Filled=true, Transparency=1}), 
 						HPText = D("Text", {Size=10, Center=true, Outline=true, Font=2, Color=Color3.new(1,1,1)}),
+						
 						Head = D("Circle", {Thickness=1, NumSides=30, Radius=0, Filled=false}),
 						Skeleton = {}
 					}
@@ -721,6 +679,7 @@ RunService.RenderStepped:Connect(function()
 				end
 				
 				if onScreen then
+					-- Dynamic Size for Box (Still needed for perspective of the box itself)
 					local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
 					local size = math.clamp(2000/pos.Z, 25, 300)
 					local w, h = size, size*1.5
@@ -746,6 +705,7 @@ RunService.RenderStepped:Connect(function()
 						esp.Info.Text = math.floor(dist).."m"; esp.Info.Position = Vector2.new(pos.X, pos.Y + h/2 + 2); esp.Info.Color = col 
 					end
 					
+					-- [[ PREMIUM FIXED HEIGHT BAR ]]
 					esp.Bar.Visible = ESP_SETTINGS.HealthBar
 					esp.BarTrack.Visible = ESP_SETTINGS.HealthBar
 					esp.BarBorder.Visible = ESP_SETTINGS.HealthBar
@@ -753,20 +713,33 @@ RunService.RenderStepped:Connect(function()
 
 					if ESP_SETTINGS.HealthBar then
 						local hp = math.clamp(hum.Health/hum.MaxHealth, 0, 1)
+						
+						-- STATIC SETTINGS (LOCKED):
 						local staticHeight = 50 
-						local staticWidth = 5 
+						local staticWidth = 5  -- Thin Premium Line
+						
+						-- Position relative to box edge
 						local barX = pos.X - w/2 - (staticWidth + 6)
+						
+						-- Vertical Centers
 						local barTop = pos.Y - staticHeight/2
 						local barBot = pos.Y + staticHeight/2
 						local filledHeight = staticHeight * hp
 						
+						-- Border (1px bigger)
 						esp.BarBorder.Size = Vector2.new(staticWidth + 2, staticHeight + 2)
 						esp.BarBorder.Position = Vector2.new(barX - 1, barTop - 1)
+						
+						-- Track
 						esp.BarTrack.Size = Vector2.new(staticWidth, staticHeight)
 						esp.BarTrack.Position = Vector2.new(barX, barTop)
+						
+						-- Fill
 						esp.Bar.Size = Vector2.new(staticWidth, filledHeight)
 						esp.Bar.Position = Vector2.new(barX, barBot - filledHeight)
 						esp.Bar.Color = Color3.fromHSV(hp * 0.33, 0.9, 1)
+						
+						-- Text Inside/Overlapping
 						esp.HPText.Text = tostring(math.floor(hum.Health))
 						esp.HPText.Position = Vector2.new(barX + (staticWidth/2), pos.Y - 5) 
 					end
