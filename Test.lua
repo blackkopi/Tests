@@ -317,7 +317,7 @@ local function StartHooks(Tower)
             "Abilities",
             "Activate",
             {
-                Troop = Tower, -- Connects to the specific Gatling Gun we found
+                Troop = Tower, 
                 Name = "FPS",
                 Data = {
                     enabled = true
@@ -326,25 +326,38 @@ local function StartHooks(Tower)
         }
         rs:WaitForChild("RemoteFunction"):InvokeServer(unpack(args))
 
-        -- [[ 2. AUTO FIRE LOGIC ]] --
+        -- [[ 2. AUTO RELOAD SETUP ]] --
+        local Replicator = Tower:WaitForChild("TowerReplicator", 5)
+        local ReloadRemote = rs:WaitForChild("Network"):WaitForChild("GatlingGun"):WaitForChild("RE:Reload")
+        
+        -- [[ 3. AUTO FIRE LOGIC ]] --
         local ggchannel = require(rs.Resources.Universal.NewNetwork).Channel("GatlingGun")
         local gganim = require(rs.Content.Tower["Gatling Gun"].Animator)
         gganim._fireGun = function() end 
         
         getgenv().GatlingMuscle = task.spawn(function()
             while true do
-                if getgenv().config.autofire and currentTarget then
-                    local hp, _ = get_stats(currentTarget.Parent)
+                if getgenv().config.autofire then
+                    -- CHECK AMMO FIRST
+                    local currentAmmo = Replicator:GetAttribute("Ammo")
                     
-                    if currentTarget.Parent and hp > 0 then
-                        local pos = currentTarget.Position
-                        local sync = workspace:GetAttribute("Sync")
-                        local sTime = workspace:GetServerTimeNow()
-                        for i = 1, getgenv().config.multiply do
-                            ggchannel:fireServer("Fire", pos, sync, sTime)
+                    if currentAmmo and currentAmmo <= 0 then
+                        -- Out of ammo: Trigger reload and wait a bit
+                        ReloadRemote:FireServer()
+                        task.wait(0.5) 
+                    elseif currentTarget then
+                         -- Has ammo: Fire at target
+                        local hp, _ = get_stats(currentTarget.Parent)
+                        if currentTarget.Parent and hp > 0 then
+                            local pos = currentTarget.Position
+                            local sync = workspace:GetAttribute("Sync")
+                            local sTime = workspace:GetServerTimeNow()
+                            for i = 1, getgenv().config.multiply do
+                                ggchannel:fireServer("Fire", pos, sync, sTime)
+                            end
+                        else
+                            UpdateTarget()
                         end
-                    else
-                        UpdateTarget()
                     end
                 end
                 task.wait(getgenv().config.cooldown)
