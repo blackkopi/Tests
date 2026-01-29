@@ -1,3 +1,8 @@
+-- // SAFE STARTUP //
+if not getgenv then
+    getgenv = function() return _G end
+end
+
 local rs = game:GetService("ReplicatedStorage")
 local uis = game:GetService("UserInputService")
 local workspace = game:GetService("Workspace")
@@ -10,9 +15,9 @@ local players = game:GetService("Players")
 -- // CONFIGURATION //
 getgenv().config = {
     autofire = true,
-    autoCaliber = false, 
-    damage = 1,          -- Will try to auto-update
-    mode = "First",
+    autoCaliber = false, -- NEW: One-shot mode
+    damage = 1,          -- NEW: Base damage setting
+    mode = "First",      -- Uses PathDistance (Best for curves)
     multiply = 10,
     cooldown = 0.05,
     norecoil = true
@@ -90,7 +95,6 @@ local initialized = false
 local currentTarget = nil
 local activeTowerPos = nil
 local StatusLabel = nil
-local DamageLabel = nil -- New label for damage
 local StateReplicators = rs:WaitForChild("StateReplicators", 5)
 
 -- // CLEANUP //
@@ -109,7 +113,7 @@ local function CreateUI()
     ScreenGui.ResetOnSpawn = false
 
     local MainFrame = Instance.new("Frame", ScreenGui)
-    MainFrame.Size = UDim2.fromOffset(280, 340)
+    MainFrame.Size = UDim2.fromOffset(280, 360) -- Made taller for new buttons
     MainFrame.Position = UDim2.fromOffset(100, 200)
     MainFrame.BackgroundColor3 = THEME.Bg
     MainFrame.BorderSizePixel = 0
@@ -206,19 +210,19 @@ local function CreateUI()
         b.Text = text; b.TextColor3 = THEME.Text; b.Font = Enum.Font.GothamBold; b.TextSize = 12
         Instance.new("UICorner", b).CornerRadius = UDim.new(0,8)
         b.MouseButton1Click:Connect(function() SoundManager.Play("Click"); cb(b) end)
-        return b
     end
 
     CreateToggle("Auto Fire", "autofire")
-    CreateToggle("Auto Caliber (OneShot)", "autoCaliber") 
+    CreateToggle("Auto Caliber", "autoCaliber") -- NEW FEATURE
     
     CreateButton("Target Mode: " .. getgenv().config.mode, function(b)
         local m = getgenv().config.mode
         if m == "Strongest" then m = "First" elseif m == "First" then m = "Close" else m = "Strongest" end
         getgenv().config.mode = m; b.Text = "Target Mode: " .. m
     end)
-
-    local damageBtn = CreateButton("Set Damage: " .. getgenv().config.damage, function(b)
+    
+    -- NEW: Manual Damage Setter
+    CreateButton("Set Damage: " .. getgenv().config.damage, function(b)
         local d = getgenv().config.damage
         if d == 1 then d = 2 elseif d == 2 then d = 4 elseif d == 4 then d = 10 
         elseif d == 10 then d = 20 elseif d == 20 then d = 50 elseif d == 50 then d = 100 
@@ -238,9 +242,6 @@ local function CreateUI()
     StatusLabel.BackgroundTransparency = 1; StatusLabel.TextColor3 = THEME.TextDim
     StatusLabel.Font = Enum.Font.Gotham; StatusLabel.TextSize = 11
     StatusLabel.Text = "Status: Searching for Gatling Gun..."
-    
-    -- Auto-updating button text from outside
-    DamageLabel = damageBtn
 
     uis.InputBegan:Connect(function(i) if i.KeyCode == Enum.KeyCode.RightControl then ScreenGui.Enabled = not ScreenGui.Enabled end end)
     SoundManager.Play("Open")
@@ -259,13 +260,20 @@ local function get_stats(model)
     if not model then return 0, 0, 0 end 
     
     local rep = get_replicator(model)
+    
     if rep then
+        -- DEAD CHECK
         if rep:GetAttribute("NoHealth") == true then return 0, 0, 0 end
+        
         local hp = rep:GetAttribute("Health") or rep:GetAttribute("HP") or 0
         local shield = rep:GetAttribute("Shield") or 0
+        
+        -- PATH DISTANCE CHECK (For better "First" targeting)
         local pathDist = rep:GetAttribute("PathDistance") or 0
+        
         return hp, shield, pathDist
     end
+    
     return 0, 0, 0
 end
 
@@ -274,7 +282,9 @@ local function UpdateTarget()
     if not enemies then return end
     
     local bestTarget = nil
+    -- If "Close", lowest is best (9e9). If "First/Strongest", highest is best (-1).
     local bestVal = (getgenv().config.mode == "Close") and 9e9 or -1 
+    
     local towerPos = activeTowerPos or workspace.CurrentCamera.CFrame.Position
 
     for _, v in ipairs(enemies:GetChildren()) do
@@ -283,12 +293,16 @@ local function UpdateTarget()
         
         if hrp and hp > 0 then
             local val = 0
+            
             if getgenv().config.mode == "Strongest" then 
                 val = hp + shield
                 if val > bestVal then bestVal = val; bestTarget = hrp end
+                
             elseif getgenv().config.mode == "First" then 
+                -- Use PathDistance: Higher means further along track
                 val = pathDist
                 if val > bestVal then bestVal = val; bestTarget = hrp end
+                
             elseif getgenv().config.mode == "Close" then 
                 val = (hrp.Position - towerPos).Magnitude
                 if val < bestVal then bestVal = val; bestTarget = hrp end
@@ -307,26 +321,10 @@ local function StartHooks(Tower)
         local gganim = require(rs.Content.Tower["Gatling Gun"].Animator)
         gganim._fireGun = function() end 
         
-        -- [[ AUTO DAMAGE CHECK ]]
-        -- Look into the Tower Replicator for damage stats
-        task.spawn(function()
-            local rep = Tower:WaitForChild("TowerReplicator", 2)
-            if rep then
-                while rep.Parent do
-                    local autoDmg = rep:GetAttribute("Damage") or rep:GetAttribute("BaseDamage")
-                    if autoDmg then
-                        getgenv().config.damage = autoDmg
-                        if DamageLabel then DamageLabel.Text = "Auto Damage: " .. autoDmg end
-                    end
-                    task.wait(1)
-                end
-            end
-        end)
-        
         getgenv().GatlingMuscle = task.spawn(function()
             while true do
                 if getgenv().config.autofire and currentTarget then
-                    -- Get HP and Shield
+                    -- Verify target stats
                     local hp, shield, _ = get_stats(currentTarget.Parent)
                     
                     if currentTarget.Parent and hp > 0 then
@@ -335,18 +333,19 @@ local function StartHooks(Tower)
                         local sTime = workspace:GetServerTimeNow()
                         
                         -- [[ AUTO CALIBER LOGIC ]]
-                        local shotsNeeded = getgenv().config.multiply -- Default
+                        local bullets = getgenv().config.multiply -- Default multiplier
                         
                         if getgenv().config.autoCaliber then
-                            local totalHP = hp + shield
-                            shotsNeeded = math.ceil(totalHP / getgenv().config.damage)
+                            local totalHealth = hp + shield
+                            -- Calculate needed bullets based on manual damage setting
+                            bullets = math.ceil(totalHealth / getgenv().config.damage)
                             
-                            -[span_0](start_span)- Clamp max ammo to 600 as requested[span_0](end_span)
-                            if shotsNeeded > 600 then shotsNeeded = 600 end
-                            if shotsNeeded < 1 then shotsNeeded = 1 end
+                            -- SAFETY CAP: 600 bullets max
+                            if bullets > 600 then bullets = 600 end
+                            if bullets < 1 then bullets = 1 end
                         end
                         
-                        for i = 1, shotsNeeded do
+                        for i = 1, bullets do
                             ggchannel:fireServer("Fire", pos, sync, sTime)
                         end
                     else
