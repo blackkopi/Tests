@@ -10,7 +10,7 @@ local players = game:GetService("Players")
 -- // CONFIGURATION //
 getgenv().config = {
     autofire = true,
-    fps_mode = true, -- Default to true for auto-enter
+    fps_mode = true, -- Auto Enter FPS
     mode = "Strongest",     
     multiply = 10,
     cooldown = 0.05,
@@ -90,11 +90,6 @@ local currentTarget = nil
 local activeTowerPos = nil
 local activeTower = nil
 local StatusLabel = nil
-local StateReplicators = rs:WaitForChild("StateReplicators", 5)
-
--- // REMOTE REFERENCES //
-local fpsRemote = rs:WaitForChild("RemoteFunction")
-local reloadEvent = rs:WaitForChild("Network"):WaitForChild("GatlingGun"):WaitForChild("RE:Reload")
 
 -- // CLEANUP //
 if getgenv().GatlingBrain then getgenv().GatlingBrain:Disconnect() end
@@ -102,45 +97,24 @@ if getgenv().GatlingMuscle then getgenv().GatlingMuscle:Disconnect() end
 if coreGui:FindFirstChild("KOPI_GATLING_UI") then coreGui.KOPI_GATLING_UI:Destroy() end
 if players.LocalPlayer.PlayerGui:FindFirstChild("KOPI_GATLING_UI") then players.LocalPlayer.PlayerGui.KOPI_GATLING_UI:Destroy() end
 
--- // ACTIONS //
-local function ToggleFPS(state)
-    if not activeTower then return end
-    
-    local args = {
-        "Troops",
-        "Abilities",
-        "Activate",
-        {
-            Troop = activeTower,
-            Name = "FPS",
-            Data = {
-                enabled = state
-            }
-        }
-    }
-    task.spawn(function()
-        fpsRemote:InvokeServer(unpack(args))
-    end)
-end
-
-local function DoReload()
-    if StatusLabel then 
-        local oldText = StatusLabel.Text
-        StatusLabel.Text = "Status: <font color=\"rgb(255,200,50)\">Auto Reloading...</font>"
-        StatusLabel.RichText = true
-        task.delay(1, function() StatusLabel.Text = oldText end)
-    end
-    reloadEvent:FireServer()
-end
-
--- // 1. UI CREATION //
+-- // UI CREATION (Run First) //
 local function CreateUI()
-    local parent = coreGui
-    pcall(function() if not parent then parent = players.LocalPlayer.PlayerGui end end)
+    local parent = nil
+    -- Try CoreGui first, fallback to PlayerGui
+    local success = pcall(function() 
+        coreGui:FindFirstChild("RobloxGui") -- Just a check
+        parent = coreGui 
+    end)
+    
+    if not success or not parent then 
+        parent = players.LocalPlayer:WaitForChild("PlayerGui") 
+    end
     
     local ScreenGui = Instance.new("ScreenGui", parent)
     ScreenGui.Name = "KOPI_GATLING_UI"
     ScreenGui.ResetOnSpawn = false
+    -- Higher ZIndex to ensure it sits on top of game UI
+    ScreenGui.DisplayOrder = 10000 
 
     local MainFrame = Instance.new("Frame", ScreenGui)
     MainFrame.Size = UDim2.fromOffset(280, 320)
@@ -162,8 +136,12 @@ local function CreateUI()
 
     task.spawn(function()
         while task.wait() do
-            StrokeGradient.Rotation = (StrokeGradient.Rotation + 1) % 360
-            BgGradient.Rotation = (BgGradient.Rotation + 0.2) % 360
+            if StrokeGradient.Parent then
+                StrokeGradient.Rotation = (StrokeGradient.Rotation + 1) % 360
+                BgGradient.Rotation = (BgGradient.Rotation + 0.2) % 360
+            else
+                break
+            end
         end
     end)
 
@@ -250,10 +228,6 @@ local function CreateUI()
 
     CreateToggle("Auto Fire", "autofire")
     
-    CreateButton("Force Reload Now", function()
-        DoReload()
-    end)
-    
     CreateButton("Target Mode: " .. getgenv().config.mode, function(b)
         local m = getgenv().config.mode
         if m == "Strongest" then m = "First" elseif m == "First" then m = "Close" else m = "Strongest" end
@@ -272,173 +246,202 @@ local function CreateUI()
     StatusLabel.Position = UDim2.new(0,0,1,-25); StatusLabel.Size = UDim2.new(1,0,0,20)
     StatusLabel.BackgroundTransparency = 1; StatusLabel.TextColor3 = THEME.TextDim
     StatusLabel.Font = Enum.Font.Gotham; StatusLabel.TextSize = 11
-    StatusLabel.Text = "Status: Searching for Gatling Gun..."
+    StatusLabel.Text = "Status: Initializing..."
 
     uis.InputBegan:Connect(function(i) if i.KeyCode == Enum.KeyCode.RightControl then ScreenGui.Enabled = not ScreenGui.Enabled end end)
     SoundManager.Play("Open")
 end
 
--- // 2. LOGIC //
-local function get_base_position()
-    local commonNames = {"Base", "Exit", "End", "EndPoint", "Lives"}
-    for _, name in pairs(commonNames) do
-        local found = workspace:FindFirstChild(name, true)
-        if found and found:IsA("BasePart") then return found.Position end
-    end
-    local map = workspace:FindFirstChild("Map")
-    if map and map:FindFirstChild("Paths") then
-        local path = map.Paths:GetChildren()[1]
-        local max, node = -1, nil
-        for _, n in ipairs(path:GetChildren()) do
-            local num = tonumber(n.Name)
-            if num and num > max then max = num; node = n end
-        end
-        if node then return node.Position end
-    end
-    return Vector3.new(0, 10, 0)
-end
+-- Call UI creation immediately
+CreateUI()
 
--- [[ UPDATED HEALTH CHECKER ]] --
-local function get_replicator(model)
-    local ptr = model:FindFirstChild("RootPointer")
-    if ptr and ptr:IsA("ObjectValue") then
-        return ptr.Value
-    end
-    return nil
-end
-
-local function get_stats(model)
-    if not model then return 0, 0 end 
-    local rep = get_replicator(model)
-    if rep then
-        if rep:GetAttribute("NoHealth") == true then return 0, 0 end
-        local hp = rep:GetAttribute("Health") or rep:GetAttribute("HP") or 0
-        local shield = rep:GetAttribute("Shield") or 0
-        return hp, shield
-    end
-    return 0, 0
-end
-
-local function UpdateTarget()
-    local enemies = workspace:FindFirstChild("NPCs") or workspace:FindFirstChild("Enemies")
-    if not enemies then return end
+-- // LOGIC START (Spawned separately so UI doesn't freeze) //
+task.spawn(function()
+    if StatusLabel then StatusLabel.Text = "Status: Waiting for game data..." end
     
-    local bestTarget = nil
-    local bestVal = (getgenv().config.mode == "Strongest") and -1 or 9e9
-    
-    local basePos = get_base_position()
-    local towerPos = activeTowerPos or workspace.CurrentCamera.CFrame.Position
-
-    for _, v in ipairs(enemies:GetChildren()) do
-        local hrp = v:FindFirstChild("HumanoidRootPart") or v:FindFirstChild("Head")
-        local hp, shield = get_stats(v)
-        
-        if hrp and hp > 0 then
-            local val = 0
-            if getgenv().config.mode == "Strongest" then 
-                val = hp + shield
-                if val > bestVal then bestVal = val; bestTarget = hrp end
-            elseif getgenv().config.mode == "First" then 
-                val = (hrp.Position - basePos).Magnitude
-                if val < bestVal then bestVal = val; bestTarget = hrp end
-            elseif getgenv().config.mode == "Close" then 
-                val = (hrp.Position - towerPos).Magnitude
-                if val < bestVal then bestVal = val; bestTarget = hrp end
-            end
-        end
-    end
-    currentTarget = bestTarget
-end
-
--- // 3. HOOKS //
-local function StartHooks(Tower)
-    if initialized then return end
-    
+    local fpsRemote = rs:WaitForChild("RemoteFunction", 10)
+    local reloadEvent
     local success, err = pcall(function()
-        local ggchannel = require(rs.Resources.Universal.NewNetwork).Channel("GatlingGun")
-        local gganim = require(rs.Content.Tower["Gatling Gun"].Animator)
-        gganim._fireGun = function() end 
-        
-        getgenv().GatlingMuscle = task.spawn(function()
-            while true do
-                if getgenv().config.autofire and currentTarget then
-                    local hp, _ = get_stats(currentTarget.Parent)
-                    if currentTarget.Parent and hp > 0 then
-                        local pos = currentTarget.Position
-                        local sync = workspace:GetAttribute("Sync")
-                        local sTime = workspace:GetServerTimeNow()
-                        for i = 1, getgenv().config.multiply do
-                            ggchannel:fireServer("Fire", pos, sync, sTime)
-                        end
-                    else
-                        UpdateTarget()
-                    end
-                end
-                task.wait(getgenv().config.cooldown)
-            end
-        end)
+         reloadEvent = rs:WaitForChild("Network", 10):WaitForChild("GatlingGun", 10):WaitForChild("RE:Reload", 10)
     end)
     
-    if not success then
-        warn("Hook Error: " .. tostring(err))
-        if StatusLabel then StatusLabel.Text = "Status: Error hooking modules" end
+    if not fpsRemote or not reloadEvent then
+        if StatusLabel then StatusLabel.Text = "Status: <font color=\"rgb(255,100,100)\">Failed to find Remotes!</font>"; StatusLabel.RichText = true end
         return
     end
 
-    initialized = true
-    if Tower then
-        activeTower = Tower 
-        if Tower:FindFirstChild("HumanoidRootPart") then 
-            activeTowerPos = Tower.HumanoidRootPart.Position 
-        end
+    local function ToggleFPS(state)
+        if not activeTower then return end
+        local args = {
+            "Troops", "Abilities", "Activate",
+            { Troop = activeTower, Name = "FPS", Data = { enabled = state } }
+        }
+        task.spawn(function() fpsRemote:InvokeServer(unpack(args)) end)
+    end
 
-        -- [[ AUTO FPS ENTRY ]]
-        -- Immediately force FPS mode upon hooking
-        if getgenv().config.fps_mode then
-            ToggleFPS(true)
+    local function DoReload()
+        if StatusLabel then 
+            local oldText = StatusLabel.Text
+            StatusLabel.Text = "Status: <font color=\"rgb(255,200,50)\">Auto Reloading...</font>"; StatusLabel.RichText = true
+            task.delay(1, function() StatusLabel.Text = oldText end)
         end
+        reloadEvent:FireServer()
+    end
 
-        -- [[ AUTO RELOAD MONITOR ]]
-        -- Check Replicator for Ammo Attribute
-        local rep = Tower:WaitForChild("TowerReplicator", 5)
+    -- // LOGIC FUNCTIONS //
+    local function get_base_position()
+        local commonNames = {"Base", "Exit", "End", "EndPoint", "Lives"}
+        for _, name in pairs(commonNames) do
+            local found = workspace:FindFirstChild(name, true)
+            if found and found:IsA("BasePart") then return found.Position end
+        end
+        local map = workspace:FindFirstChild("Map")
+        if map and map:FindFirstChild("Paths") then
+            local path = map.Paths:GetChildren()[1]
+            local max, node = -1, nil
+            for _, n in ipairs(path:GetChildren()) do
+                local num = tonumber(n.Name)
+                if num and num > max then max = num; node = n end
+            end
+            if node then return node.Position end
+        end
+        return Vector3.new(0, 10, 0)
+    end
+
+    local function get_replicator(model)
+        local ptr = model:FindFirstChild("RootPointer")
+        if ptr and ptr:IsA("ObjectValue") then return ptr.Value end
+        return nil
+    end
+
+    local function get_stats(model)
+        if not model then return 0, 0 end 
+        local rep = get_replicator(model)
         if rep then
-            task.spawn(function()
-                while task.wait(0.2) do
-                    local ammo = rep:GetAttribute("Ammo")
-                    -- If ammo is 0, reload immediately
-                    if ammo and ammo <= 0 then
-                        DoReload()
-                        -- Small debounce so we don't spam reload while it's processing
-                        task.wait(1.5) 
+            if rep:GetAttribute("NoHealth") == true then return 0, 0 end
+            local hp = rep:GetAttribute("Health") or rep:GetAttribute("HP") or 0
+            local shield = rep:GetAttribute("Shield") or 0
+            return hp, shield
+        end
+        return 0, 0
+    end
+
+    local function UpdateTarget()
+        local enemies = workspace:FindFirstChild("NPCs") or workspace:FindFirstChild("Enemies")
+        if not enemies then return end
+        
+        local bestTarget = nil
+        local bestVal = (getgenv().config.mode == "Strongest") and -1 or 9e9
+        
+        local basePos = get_base_position()
+        local towerPos = activeTowerPos or workspace.CurrentCamera.CFrame.Position
+
+        for _, v in ipairs(enemies:GetChildren()) do
+            local hrp = v:FindFirstChild("HumanoidRootPart") or v:FindFirstChild("Head")
+            local hp, shield = get_stats(v)
+            
+            if hrp and hp > 0 then
+                local val = 0
+                if getgenv().config.mode == "Strongest" then 
+                    val = hp + shield
+                    if val > bestVal then bestVal = val; bestTarget = hrp end
+                elseif getgenv().config.mode == "First" then 
+                    val = (hrp.Position - basePos).Magnitude
+                    if val < bestVal then bestVal = val; bestTarget = hrp end
+                elseif getgenv().config.mode == "Close" then 
+                    val = (hrp.Position - towerPos).Magnitude
+                    if val < bestVal then bestVal = val; bestTarget = hrp end
+                end
+            end
+        end
+        currentTarget = bestTarget
+    end
+
+    local function StartHooks(Tower)
+        if initialized then return end
+        
+        local success, err = pcall(function()
+            local ggchannel = require(rs.Resources.Universal.NewNetwork).Channel("GatlingGun")
+            local gganim = require(rs.Content.Tower["Gatling Gun"].Animator)
+            gganim._fireGun = function() end 
+            
+            getgenv().GatlingMuscle = task.spawn(function()
+                while true do
+                    if getgenv().config.autofire and currentTarget then
+                        local hp, _ = get_stats(currentTarget.Parent)
+                        if currentTarget.Parent and hp > 0 then
+                            local pos = currentTarget.Position
+                            local sync = workspace:GetAttribute("Sync")
+                            local sTime = workspace:GetServerTimeNow()
+                            for i = 1, getgenv().config.multiply do
+                                ggchannel:fireServer("Fire", pos, sync, sTime)
+                            end
+                        else
+                            UpdateTarget()
+                        end
                     end
+                    task.wait(getgenv().config.cooldown)
+                end
+            end)
+        end)
+        
+        if not success then
+            warn("Hook Error: " .. tostring(err))
+            if StatusLabel then StatusLabel.Text = "Status: Error hooking modules" end
+            return
+        end
+
+        initialized = true
+        if Tower then
+            activeTower = Tower 
+            if Tower:FindFirstChild("HumanoidRootPart") then 
+                activeTowerPos = Tower.HumanoidRootPart.Position 
+            end
+
+            -- [[ AUTO FPS ENTRY ]]
+            if getgenv().config.fps_mode then
+                ToggleFPS(true)
+            end
+
+            -- [[ AUTO RELOAD MONITOR ]]
+            local rep = Tower:WaitForChild("TowerReplicator", 5)
+            if rep then
+                task.spawn(function()
+                    while task.wait(0.2) do
+                        local ammo = rep:GetAttribute("Ammo")
+                        if ammo and ammo <= 0 then
+                            DoReload()
+                            task.wait(1.5) 
+                        end
+                    end
+                end)
+            end
+        end
+        
+        if StatusLabel then StatusLabel.Text = "Status: <font color=\"rgb(80,255,140)\">Attached & Auto-Active</font>"; StatusLabel.RichText = true end
+
+        getgenv().GatlingBrain = runService.Heartbeat:Connect(function()
+            if not getgenv().config.autofire then return end
+            UpdateTarget()
+        end)
+    end
+
+    if StatusLabel then StatusLabel.Text = "Status: Searching for Gatling Gun..." end
+
+    local towersFolder = workspace:WaitForChild("Towers", 5)
+    if towersFolder then
+        local function checkTower(Tower)
+            task.spawn(function()
+                local Replicator = Tower:WaitForChild("TowerReplicator", 5)
+                if not Replicator then return end
+                if string.find(string.lower(Replicator:GetAttribute("Name") or ""), "gatling") then
+                    StartHooks(Tower)
                 end
             end)
         end
+        towersFolder.ChildAdded:Connect(checkTower)
+        for _, t in pairs(towersFolder:GetChildren()) do checkTower(t) end
+    else
+        if StatusLabel then StatusLabel.Text = "Status: 'Towers' folder not found." end
     end
-    
-    if StatusLabel then StatusLabel.Text = "Status: <font color=\"rgb(80,255,140)\">Auto-Logic Active</font>"; StatusLabel.RichText = true end
-
-    getgenv().GatlingBrain = runService.Heartbeat:Connect(function()
-        if not getgenv().config.autofire then return end
-        UpdateTarget()
-    end)
-end
-
--- // 4. INIT //
-CreateUI()
-local towersFolder = workspace:WaitForChild("Towers", 5)
-if towersFolder then
-    local function checkTower(Tower)
-        task.spawn(function()
-            local Replicator = Tower:WaitForChild("TowerReplicator", 5)
-            if not Replicator then return end
-            if string.find(string.lower(Replicator:GetAttribute("Name") or ""), "gatling") then
-                StartHooks(Tower)
-            end
-        end)
-    end
-    towersFolder.ChildAdded:Connect(checkTower)
-    for _, t in pairs(towersFolder:GetChildren()) do checkTower(t) end
-else
-    if StatusLabel then StatusLabel.Text = "Status: 'Towers' folder not found." end
-end
+end)
