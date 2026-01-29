@@ -10,11 +10,10 @@ local players = game:GetService("Players")
 -- // CONFIGURATION //
 getgenv().config = {
     autofire = true,
-    mode = "First",         
+    mode = "First",         -- "First" is now the best mode (uses PathDistance)
     multiply = 10,
     cooldown = 0.05,
-    norecoil = true,
-    prediction = 0.15       -- Ping compensation in seconds
+    norecoil = true
 }
 
 -- // THEME //
@@ -242,52 +241,28 @@ local function get_replicator(model)
 end
 
 local function get_stats(model)
-    if not model then return 0, 0, 0, 1 end 
+    [span_0](start_span)if not model then return 0, 0, 0 end[span_0](end_span)
+    
     local rep = get_replicator(model)
+    
     if rep then
-        if rep:GetAttribute("NoHealth") == true then return 0, 0, 0, 1 end
+        -- 1. DEAD CHECK (Maintains the fix you wanted)
+        if rep:GetAttribute("NoHealth") == true then
+            return 0, 0, 0 
+        end
         
-        local hp = rep:GetAttribute("Health") or rep:GetAttribute("HP") or 0
-        local shield = rep:GetAttribute("Shield") or 0
+        -- 2. GET STATS
+        [span_1](start_span)local hp = rep:GetAttribute("Health") or rep:GetAttribute("HP") or 0[span_1](end_span)
+        [span_2](start_span)local shield = rep:GetAttribute("Shield") or 0[span_2](end_span)
+        
+        -- 3. PATH DISTANCE (For better "First" targeting)
+        -- We grab this directly from the data you found in the screenshot
         local pathDist = rep:GetAttribute("PathDistance") or 0
-        local pathName = rep:GetAttribute("PathName") or 1 -- Default to path 1
         
-        return hp, shield, pathDist, pathName
-    end
-    return 0, 0, 0, 1
-end
-
--- [[ PATH RESOLVER: Converts Distance -> Vector3 ]] --
-local function get_position_on_path(pathName, distance)
-    local map = workspace:FindFirstChild("Map")
-    if not map then return nil end
-    
-    local pathsFolder = map:FindFirstChild("Paths")
-    if not pathsFolder then return nil end
-    
-    local path = pathsFolder:FindFirstChild(tostring(pathName))
-    if not path then 
-        -- Fallback: Try grabbing the first child if specific path not found
-        path = pathsFolder:GetChildren()[1] 
-    end
-    if not path then return nil end
-    
-    -- In TDS, Distance 1.5 usually means "Between Node 1 and Node 2"
-    local startIdx = math.floor(distance)
-    local endIdx = math.ceil(distance)
-    local alpha = distance - startIdx
-    
-    local startNode = path:FindFirstChild(tostring(startIdx))
-    local endNode = path:FindFirstChild(tostring(endIdx))
-    
-    if startNode and endNode then
-        -- Interpolate properly on the track
-        return startNode.Position:Lerp(endNode.Position, alpha)
-    elseif startNode then
-        return startNode.Position -- End of track?
+        return hp, shield, pathDist
     end
     
-    return nil
+    [span_3](start_span)return 0, 0, 0[span_3](end_span)
 end
 
 local function UpdateTarget()
@@ -295,24 +270,40 @@ local function UpdateTarget()
     if not enemies then return end
     
     local bestTarget = nil
+    
+    -- INIT VALUE: If mode is "Close", we want Lowest number. Else we want Highest.
     local bestVal = (getgenv().config.mode == "Close") and 9e9 or -1 
+    
     local towerPos = activeTowerPos or workspace.CurrentCamera.CFrame.Position
 
     for _, v in ipairs(enemies:GetChildren()) do
         local hrp = v:FindFirstChild("HumanoidRootPart") or v:FindFirstChild("Head")
-        local hp, shield, pathDist, _ = get_stats(v)
+        
+        -- Get verified stats + PathDistance
+        [span_4](start_span)local hp, shield, pathDist = get_stats(v)[span_4](end_span)
         
         if hrp and hp > 0 then
             local val = 0
+            
             if getgenv().config.mode == "Strongest" then 
                 val = hp + shield
-                if val > bestVal then bestVal = val; bestTarget = hrp end
+                if val > bestVal then 
+                    bestVal = val; bestTarget = hrp 
+                [span_5](start_span)end[span_5](end_span)
+                
             elseif getgenv().config.mode == "First" then 
+                -- [[ UPGRADE: Uses PathDistance instead of physical distance ]]
+                -- This fixes targeting on curves without breaking shots
                 val = pathDist
-                if val > bestVal then bestVal = val; bestTarget = hrp end
+                if val > bestVal then 
+                    bestVal = val; bestTarget = hrp 
+                end 
+                
             elseif getgenv().config.mode == "Close" then 
                 val = (hrp.Position - towerPos).Magnitude
-                if val < bestVal then bestVal = val; bestTarget = hrp end
+                if val < bestVal then 
+                    bestVal = val; bestTarget = hrp 
+                [span_6](start_span)end[span_6](end_span)
             end
         end
     end
@@ -329,53 +320,20 @@ local function StartHooks(Tower)
         gganim._fireGun = function() end 
         
         getgenv().GatlingMuscle = task.spawn(function()
-            local lastTarget = nil
-            local lastDist = 0
-            local lastTick = os.clock()
-            
             while true do
                 if getgenv().config.autofire and currentTarget then
-                    -- Verify stats
-                    local hp, _, dist, pathName = get_stats(currentTarget.Parent)
+                    local hp, _, _ = get_stats(currentTarget.Parent)
                     
                     if currentTarget.Parent and hp > 0 then
-                        local predictedPos = currentTarget.Position -- Default
-                        
-                        -- [[ CURVE-PROOF PREDICTION ]]
-                        if currentTarget == lastTarget then
-                            local dt = os.clock() - lastTick
-                            if dt > 0 then
-                                -- Calculate speed along the TRACK (not 3D space)
-                                local speed = (dist - lastDist) / dt
-                                
-                                -- Predict future Distance (e.g., 1.25 -> 1.30)
-                                local futureDist = dist + (speed * getgenv().config.prediction)
-                                
-                                -- Resolve that future distance to a real 3D point on the line
-                                local trackPos = get_position_on_path(pathName, futureDist)
-                                if trackPos then
-                                    predictedPos = trackPos
-                                end
-                            end
-                        end
-                        
-                        local sync = workspace:GetAttribute("Sync")
+                        local pos = currentTarget.Position
+                        [span_7](start_span)local sync = workspace:GetAttribute("Sync")[span_7](end_span)
                         local sTime = workspace:GetServerTimeNow()
-                        
                         for i = 1, getgenv().config.multiply do
-                            ggchannel:fireServer("Fire", predictedPos, sync, sTime)
+                            [span_8](start_span)ggchannel:fireServer("Fire", pos, sync, sTime)[span_8](end_span)
                         end
-                        
-                        -- Update tracker
-                        lastTarget = currentTarget
-                        lastDist = dist
-                        lastTick = os.clock()
                     else
                         UpdateTarget()
-                        lastTarget = nil 
                     end
-                else
-                    lastTarget = nil
                 end
                 task.wait(getgenv().config.cooldown)
             end
@@ -406,7 +364,7 @@ if towersFolder then
         task.spawn(function()
             local Replicator = Tower:WaitForChild("TowerReplicator", 5)
             if not Replicator then return end
-            if string.find(string.lower(Replicator:GetAttribute("Name") or ""), "gatling") then
+            [span_9](start_span)if string.find(string.lower(Replicator:GetAttribute("Name") or ""), "gatling") then[span_9](end_span)
                 StartHooks(Tower)
             end
         end)
