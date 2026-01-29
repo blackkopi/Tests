@@ -1,4 +1,5 @@
--- // SAFE STARTUP //
+-- // 0. SAFE EXECUTOR CHECK //
+-- This fixes the "attempt to call a nil value" error on mobile/weaker executors
 if not getgenv then
     getgenv = function() return _G end
 end
@@ -15,9 +16,9 @@ local players = game:GetService("Players")
 -- // CONFIGURATION //
 getgenv().config = {
     autofire = true,
-    autoCaliber = false, -- NEW: One-shot mode
-    damage = 1,          -- NEW: Base damage setting
-    mode = "First",      -- Uses PathDistance (Best for curves)
+    autoCaliber = false, -- New Feature
+    damage = 1,          -- New Feature (Set this to your tower damage)
+    mode = "First",      -- Now uses PathDistance (Best for curves)
     multiply = 10,
     cooldown = 0.05,
     norecoil = true
@@ -113,7 +114,7 @@ local function CreateUI()
     ScreenGui.ResetOnSpawn = false
 
     local MainFrame = Instance.new("Frame", ScreenGui)
-    MainFrame.Size = UDim2.fromOffset(280, 360) -- Made taller for new buttons
+    MainFrame.Size = UDim2.fromOffset(280, 360) -- Taller for new buttons
     MainFrame.Position = UDim2.fromOffset(100, 200)
     MainFrame.BackgroundColor3 = THEME.Bg
     MainFrame.BorderSizePixel = 0
@@ -213,7 +214,7 @@ local function CreateUI()
     end
 
     CreateToggle("Auto Fire", "autofire")
-    CreateToggle("Auto Caliber", "autoCaliber") -- NEW FEATURE
+    CreateToggle("Auto Caliber (OneShot)", "autoCaliber") -- NEW FEATURE
     
     CreateButton("Target Mode: " .. getgenv().config.mode, function(b)
         local m = getgenv().config.mode
@@ -221,7 +222,7 @@ local function CreateUI()
         getgenv().config.mode = m; b.Text = "Target Mode: " .. m
     end)
     
-    -- NEW: Manual Damage Setter
+    -- NEW DAMAGE SETTER BUTTON
     CreateButton("Set Damage: " .. getgenv().config.damage, function(b)
         local d = getgenv().config.damage
         if d == 1 then d = 2 elseif d == 2 then d = 4 elseif d == 4 then d = 10 
@@ -237,6 +238,8 @@ local function CreateUI()
         getgenv().config.multiply = m; b.Text = "Multiplier: " .. m .. "x"
     end)
     
+    -- Removed "Hide UI" as requested
+
     StatusLabel = Instance.new("TextLabel", MainFrame)
     StatusLabel.Position = UDim2.new(0,0,1,-25); StatusLabel.Size = UDim2.new(1,0,0,20)
     StatusLabel.BackgroundTransparency = 1; StatusLabel.TextColor3 = THEME.TextDim
@@ -267,9 +270,7 @@ local function get_stats(model)
         
         local hp = rep:GetAttribute("Health") or rep:GetAttribute("HP") or 0
         local shield = rep:GetAttribute("Shield") or 0
-        
-        -- PATH DISTANCE CHECK (For better "First" targeting)
-        local pathDist = rep:GetAttribute("PathDistance") or 0
+        local pathDist = rep:GetAttribute("PathDistance") or 0 -- FOUND IN SCREENSHOT
         
         return hp, shield, pathDist
     end
@@ -282,7 +283,7 @@ local function UpdateTarget()
     if not enemies then return end
     
     local bestTarget = nil
-    -- If "Close", lowest is best (9e9). If "First/Strongest", highest is best (-1).
+    -- If "Close", lowest is best (9e9). For First/Strongest, Highest is best (-1).
     local bestVal = (getgenv().config.mode == "Close") and 9e9 or -1 
     
     local towerPos = activeTowerPos or workspace.CurrentCamera.CFrame.Position
@@ -299,7 +300,7 @@ local function UpdateTarget()
                 if val > bestVal then bestVal = val; bestTarget = hrp end
                 
             elseif getgenv().config.mode == "First" then 
-                -- Use PathDistance: Higher means further along track
+                -- Use PathDistance: Higher means further along track (Correct "First")
                 val = pathDist
                 if val > bestVal then bestVal = val; bestTarget = hrp end
                 
@@ -333,14 +334,14 @@ local function StartHooks(Tower)
                         local sTime = workspace:GetServerTimeNow()
                         
                         -- [[ AUTO CALIBER LOGIC ]]
-                        local bullets = getgenv().config.multiply -- Default multiplier
+                        local bullets = getgenv().config.multiply -- Default
                         
                         if getgenv().config.autoCaliber then
                             local totalHealth = hp + shield
-                            -- Calculate needed bullets based on manual damage setting
+                            -- Calculate based on user Damage setting
                             bullets = math.ceil(totalHealth / getgenv().config.damage)
                             
-                            -- SAFETY CAP: 600 bullets max
+                            -- Cap at 600 ammo
                             if bullets > 600 then bullets = 600 end
                             if bullets < 1 then bullets = 1 end
                         end
