@@ -10,11 +10,11 @@ local players = game:GetService("Players")
 -- // CONFIGURATION //
 getgenv().config = {
     autofire = true,
-    mode = "First",         -- Default to First since it's now perfect
+    mode = "First",         
     multiply = 10,
     cooldown = 0.05,
     norecoil = true,
-    prediction = 0.15       -- Prediction factor (0.15 is good for average ping)
+    prediction = 0.15       -- Ping compensation in seconds
 }
 
 -- // THEME //
@@ -242,21 +242,52 @@ local function get_replicator(model)
 end
 
 local function get_stats(model)
-    if not model then return 0, 0, 0 end 
+    if not model then return 0, 0, 0, 1 end 
     local rep = get_replicator(model)
     if rep then
-        -- DEAD CHECK: from your screenshot "NoHealth"
-        if rep:GetAttribute("NoHealth") == true then return 0, 0, 0 end
+        if rep:GetAttribute("NoHealth") == true then return 0, 0, 0, 1 end
         
         local hp = rep:GetAttribute("Health") or rep:GetAttribute("HP") or 0
         local shield = rep:GetAttribute("Shield") or 0
-        
-        -- FIRST CHECK: from your screenshot "PathDistance"
         local pathDist = rep:GetAttribute("PathDistance") or 0
+        local pathName = rep:GetAttribute("PathName") or 1 -- Default to path 1
         
-        return hp, shield, pathDist
+        return hp, shield, pathDist, pathName
     end
-    return 0, 0, 0
+    return 0, 0, 0, 1
+end
+
+-- [[ PATH RESOLVER: Converts Distance -> Vector3 ]] --
+local function get_position_on_path(pathName, distance)
+    local map = workspace:FindFirstChild("Map")
+    if not map then return nil end
+    
+    local pathsFolder = map:FindFirstChild("Paths")
+    if not pathsFolder then return nil end
+    
+    local path = pathsFolder:FindFirstChild(tostring(pathName))
+    if not path then 
+        -- Fallback: Try grabbing the first child if specific path not found
+        path = pathsFolder:GetChildren()[1] 
+    end
+    if not path then return nil end
+    
+    -- In TDS, Distance 1.5 usually means "Between Node 1 and Node 2"
+    local startIdx = math.floor(distance)
+    local endIdx = math.ceil(distance)
+    local alpha = distance - startIdx
+    
+    local startNode = path:FindFirstChild(tostring(startIdx))
+    local endNode = path:FindFirstChild(tostring(endIdx))
+    
+    if startNode and endNode then
+        -- Interpolate properly on the track
+        return startNode.Position:Lerp(endNode.Position, alpha)
+    elseif startNode then
+        return startNode.Position -- End of track?
+    end
+    
+    return nil
 end
 
 local function UpdateTarget()
@@ -264,28 +295,21 @@ local function UpdateTarget()
     if not enemies then return end
     
     local bestTarget = nil
-    -- Initialize bestVal based on mode. 
-    -- For "First", we want HIGHER PathDistance (further along track), so start at -1.
     local bestVal = (getgenv().config.mode == "Close") and 9e9 or -1 
-    
     local towerPos = activeTowerPos or workspace.CurrentCamera.CFrame.Position
 
     for _, v in ipairs(enemies:GetChildren()) do
         local hrp = v:FindFirstChild("HumanoidRootPart") or v:FindFirstChild("Head")
-        local hp, shield, pathDist = get_stats(v)
+        local hp, shield, pathDist, _ = get_stats(v)
         
         if hrp and hp > 0 then
             local val = 0
-            
             if getgenv().config.mode == "Strongest" then 
                 val = hp + shield
                 if val > bestVal then bestVal = val; bestTarget = hrp end
-                
             elseif getgenv().config.mode == "First" then 
-                -- [[ UPDATED: Uses PathDistance for perfect accuracy ]]
                 val = pathDist
                 if val > bestVal then bestVal = val; bestTarget = hrp end
-                
             elseif getgenv().config.mode == "Close" then 
                 val = (hrp.Position - towerPos).Magnitude
                 if val < bestVal then bestVal = val; bestTarget = hrp end
@@ -306,25 +330,32 @@ local function StartHooks(Tower)
         
         getgenv().GatlingMuscle = task.spawn(function()
             local lastTarget = nil
-            local lastPos = nil
+            local lastDist = 0
             local lastTick = os.clock()
             
             while true do
                 if getgenv().config.autofire and currentTarget then
                     -- Verify stats
-                    local hp, _, _ = get_stats(currentTarget.Parent)
+                    local hp, _, dist, pathName = get_stats(currentTarget.Parent)
                     
                     if currentTarget.Parent and hp > 0 then
-                        local currentPos = currentTarget.Position
-                        local predictedPos = currentPos
+                        local predictedPos = currentTarget.Position -- Default
                         
-                        -- [[ PREDICTION LOGIC ]]
-                        -- Calculates velocity to shoot where enemy WILL be
-                        if currentTarget == lastTarget and lastPos then
+                        -- [[ CURVE-PROOF PREDICTION ]]
+                        if currentTarget == lastTarget then
                             local dt = os.clock() - lastTick
                             if dt > 0 then
-                                local velocity = (currentPos - lastPos) / dt
-                                predictedPos = currentPos + (velocity * getgenv().config.prediction)
+                                -- Calculate speed along the TRACK (not 3D space)
+                                local speed = (dist - lastDist) / dt
+                                
+                                -- Predict future Distance (e.g., 1.25 -> 1.30)
+                                local futureDist = dist + (speed * getgenv().config.prediction)
+                                
+                                -- Resolve that future distance to a real 3D point on the line
+                                local trackPos = get_position_on_path(pathName, futureDist)
+                                if trackPos then
+                                    predictedPos = trackPos
+                                end
                             end
                         end
                         
@@ -337,7 +368,7 @@ local function StartHooks(Tower)
                         
                         -- Update tracker
                         lastTarget = currentTarget
-                        lastPos = currentPos
+                        lastDist = dist
                         lastTick = os.clock()
                     else
                         UpdateTarget()
